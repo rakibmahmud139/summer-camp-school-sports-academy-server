@@ -33,6 +33,9 @@ async function run() {
 
         const classCollection = client.db("academyDB").collection("classes");
         const instructorCollection = client.db("academyDB").collection("instructors");
+        const cartCollection = client.db("academyDB").collection("carts");
+
+
 
 
 
@@ -49,6 +52,20 @@ async function run() {
         //instructors API
         app.get('/instructors', async (req, res) => {
             const result = await instructorCollection.find().toArray();
+            res.send(result);
+        })
+
+
+        //Carts API
+        app.get('/carts', async (req, res) => {
+            const result = await cartCollection.find().toArray();
+            res.send(result);
+        })
+
+
+        app.post('/carts', async (req, res) => {
+            const body = req.body;
+            const result = await cartCollection.insertOne(body);
             res.send(result);
         })
 
