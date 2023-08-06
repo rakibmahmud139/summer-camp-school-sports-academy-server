@@ -34,9 +34,42 @@ async function run() {
         const classCollection = client.db("academyDB").collection("classes");
         const instructorCollection = client.db("academyDB").collection("instructors");
         const cartCollection = client.db("academyDB").collection("carts");
+        const studentCollection = client.db("academyDB").collection("students");
 
 
 
+
+        //student Collection
+        app.get('/students', async (req, res) => {
+            const result = await studentCollection.find().toArray();
+            res.send(result);
+        })
+
+
+        app.post('/students', async (req, res) => {
+            const user = req.body;
+            const query = { email: user.email }
+            const existingUser = await studentCollection.findOne(query)
+            if (existingUser) {
+                return res.send({ message: "user already exits" })
+            }
+            const result = await studentCollection.insertOne(user);
+            res.send(result);
+        })
+
+
+        //Make Admin
+        app.patch('/students/admin/:id', async (req, res) => {
+            const id = req.params.id;
+            const filter = { _id: new ObjectId(id) };
+            const updateDoc = {
+                $set: {
+                    role: 'admin'
+                }
+            }
+            const result = await studentCollection.updateOne(filter, updateDoc);
+            res.send(result);
+        })
 
 
 
