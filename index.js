@@ -37,9 +37,7 @@ async function run() {
         const studentCollection = client.db("academyDB").collection("students");
 
 
-
-
-        //student Collection
+        //Student related API
         app.get('/students', async (req, res) => {
             const result = await studentCollection.find().toArray();
             res.send(result);
@@ -47,20 +45,20 @@ async function run() {
 
 
         app.post('/students', async (req, res) => {
-            const user = req.body;
-            const query = { email: user.email }
-            const existingUser = await studentCollection.findOne(query)
-            if (existingUser) {
-                return res.send({ message: "user already exits" })
+            const student = req.body;
+            const query = { email: student.email }
+            const existingStudent = await studentCollection.findOne(query)
+            if (existingStudent) {
+                return res.send({ message: "Student already exits" })
             }
-            const result = await studentCollection.insertOne(user);
+            const result = await studentCollection.insertOne(student);
             res.send(result);
         })
 
 
-        //Make Admin
         app.patch('/students/admin/:id', async (req, res) => {
             const id = req.params.id;
+            console.log(id);
             const filter = { _id: new ObjectId(id) };
             const updateDoc = {
                 $set: {
@@ -71,16 +69,11 @@ async function run() {
             res.send(result);
         })
 
-        //Make Instructor
-        app.patch('/students/instructor/:id', async (req, res) => {
+
+        app.delete('/students/:id', async (req, res) => {
             const id = req.params.id;
-            const filter = { _id: new ObjectId(id) };
-            const updateDoc = {
-                $set: {
-                    role: 'instructor'
-                }
-            }
-            const result = await studentCollection.updateOne(filter, updateDoc);
+            const query = { _id: new ObjectId(id) };
+            const result = await studentCollection.deleteOne(query);
             res.send(result);
         })
 
@@ -104,7 +97,12 @@ async function run() {
 
         //Carts API
         app.get('/carts', async (req, res) => {
-            const result = await cartCollection.find().toArray();
+            const email = req.query.email;
+            if (!email) {
+                return res.send([])
+            }
+            const query = { email: email };
+            const result = await cartCollection.find(query).toArray();
             res.send(result);
         })
 
