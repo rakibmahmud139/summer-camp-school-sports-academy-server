@@ -259,7 +259,8 @@ async function run() {
                 paidClass,
                 revenue
             });
-        })
+        });
+
 
 
 
