@@ -1,7 +1,9 @@
 const express = require('express');
 const cors = require('cors');
-require('dotenv').config()
+require('dotenv').config();
+const stripe = require('stripe')(process.env.PAYMENT_SECRET_KEY)
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const jwt = require('jsonwebtoken');
 const app = express();
 const port = process.env.PORT || 5000;
 
@@ -10,6 +12,22 @@ const port = process.env.PORT || 5000;
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+
+const verifyJWT = (req, res, next) => {
+    const authorization = req.headers.authorization;
+    if (!authorization) {
+        return res.status(401).send({ error: true, message: 'unauthorized domain' })
+    }
+    const token = authorization.split(' ')[1];
+    jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+        if (err) {
+            return res.status(401).send({ error: true, message: 'unauthorized domain' })
+        }
+        req.decoded = decoded;
+        next()
+    })
+}
 
 
 
@@ -35,11 +53,43 @@ async function run() {
         const instructorCollection = client.db("academyDB").collection("instructors");
         const cartCollection = client.db("academyDB").collection("carts");
         const studentCollection = client.db("academyDB").collection("students");
+        const paymentCollection = client.db("academyDB").collection("payments");
+
+
+        app.post('/jwt', (req, res) => {
+            const user = req.body;
+            const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '7d' });
+            res.send({ token });
+        })
+
+
+        const verifyAdmin = async (req, res, next) => {
+            const email = req.decoded.email;
+            const query = { email: email };
+            const user = await studentCollection.findOne(query);
+            if (user.role !== 'admin') {
+                return res.status(403).send({ error: true, message: 'forbidden message' })
+            }
+            next()
+        }
 
 
         //Student related API
-        app.get('/students', async (req, res) => {
+        app.get('/students', verifyJWT, verifyAdmin, async (req, res) => {
             const result = await studentCollection.find().toArray();
+            res.send(result);
+        })
+
+        app.get("/student/admin/:email", verifyJWT, async (req, res) => {
+            const email = req.params.email;
+
+            if (req.decoded.email !== email) {
+                res.send({ admin: false })
+            }
+
+            const query = { email: email };
+            const user = await studentCollection.findOne(query);
+            const result = { admin: user?.role === 'admin' }
             res.send(result);
         })
 
@@ -55,10 +105,9 @@ async function run() {
             res.send(result);
         })
 
-
+        //make admin
         app.patch('/students/admin/:id', async (req, res) => {
             const id = req.params.id;
-            console.log(id);
             const filter = { _id: new ObjectId(id) };
             const updateDoc = {
                 $set: {
@@ -70,10 +119,17 @@ async function run() {
         })
 
 
-        app.delete('/students/:id', async (req, res) => {
+        //make instructor
+
+        app.patch('/students/instructor/:id', async (req, res) => {
             const id = req.params.id;
-            const query = { _id: new ObjectId(id) };
-            const result = await studentCollection.deleteOne(query);
+            const filter = { _id: new ObjectId(id) };
+            const updateDoc = {
+                $set: {
+                    role: 'instructor'
+                }
+            }
+            const result = await studentCollection.updateOne(filter, updateDoc);
             res.send(result);
         })
 
@@ -85,6 +141,41 @@ async function run() {
             res.send(result)
         })
 
+        app.post('/classes', verifyJWT, async (req, res) => {
+            const data = req.body;
+            const result = await classCollection.insertOne(data);
+            res.send(result)
+        })
+
+        app.get('/classes/instructor', verifyJWT, async (req, res) => {
+            const email = req.query.email;
+            if (!email) {
+                return res.send([])
+            }
+
+            const decodedEmail = req.decoded.email;
+            if (email !== decodedEmail) {
+                res.status(403).send({ error: true, message: 'forbidden access' })
+            }
+
+            const query = { email: email };
+            const result = await classCollection.find(query).toArray();
+            res.send(result);
+        })
+
+        //instructor
+        app.get("/student/instructor/:email", verifyJWT, async (req, res) => {
+            const email = req.params.email;
+
+            if (req.decoded.email !== email) {
+                res.send({ instructor: false })
+            }
+
+            const query = { email: email };
+            const user = await studentCollection.findOne(query);
+            const result = { admin: user?.role === 'instructor' }
+            res.send(result);
+        })
 
 
 
@@ -95,12 +186,19 @@ async function run() {
         })
 
 
+
         //Carts API
-        app.get('/carts', async (req, res) => {
+        app.get('/carts', verifyJWT, async (req, res) => {
             const email = req.query.email;
             if (!email) {
                 return res.send([])
             }
+
+            const decodedEmail = req.decoded.email;
+            if (email !== decodedEmail) {
+                res.status(403).send({ error: true, message: 'forbidden access' })
+            }
+
             const query = { email: email };
             const result = await cartCollection.find(query).toArray();
             res.send(result);
@@ -113,11 +211,54 @@ async function run() {
             res.send(result);
         })
 
+
         app.delete('/carts/:id', async (req, res) => {
             const id = req.params.id;
             const query = { _id: new ObjectId(id) }
             const result = await cartCollection.deleteOne(query);
             res.send(result);
+        })
+
+
+
+        //payment gateway APIs
+        app.post('/create-payment-intent', verifyJWT, async (req, res) => {
+            const { price } = req.body;
+            const amount = price * 100;
+            const paymentIntent = await stripe.paymentIntents.create({
+                amount: amount,
+                currency: 'usd',
+                payment_method_types: ["card"]
+            })
+            res.send({
+                clientSecret: paymentIntent.client_secret
+            })
+        })
+
+
+        app.post('/payments', async (req, res) => {
+            const payment = req.body;
+
+            const query = { _id: { $in: payment.cartItems.map(id => new ObjectId(id)) } };
+            const deleteResult = await cartCollection.deleteMany(query);
+
+            const insertResult = await paymentCollection.insertOne(payment)
+            res.send({ insertResult, deleteResult });
+        })
+
+
+        app.get('/admin-stats', verifyJWT, verifyAdmin, async (req, res) => {
+            const students = await studentCollection.estimatedDocumentCount();
+            const totalClasses = await classCollection.estimatedDocumentCount();
+            const paidClass = await paymentCollection.estimatedDocumentCount();
+            const payments = await paymentCollection.find().toArray();
+            const revenue = payments.reduce((sum, payment) => sum + payment.price, 0)
+            res.send({
+                students,
+                totalClasses,
+                paidClass,
+                revenue
+            });
         })
 
 
