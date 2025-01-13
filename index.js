@@ -137,10 +137,44 @@ async function run() {
       res.send(result);
     });
 
+    app.get("/instructors/:id", async (req, res) => {
+      const id = req.params.id; // Extract the ID from the request parameters
+
+      try {
+        const result = await instructorCollection.findOne({
+          _id: new ObjectId(id),
+        });
+        if (result) {
+          res.send(result);
+        } else {
+          res.status(404).send({ message: "Instructor not found" });
+        }
+      } catch (error) {
+        res.status(500).send({ message: "An error occurred", error });
+      }
+    });
+
     //classes API
     app.get("/classes", async (req, res) => {
       const result = await classCollection.find().toArray();
       res.send(result);
+    });
+
+    app.get("/classes/:id", async (req, res) => {
+      const id = req.params.id; // Get the ID from the request parameters
+
+      try {
+        const result = await classCollection.findOne({ _id: new ObjectId(id) });
+        if (!result) {
+          return res.status(404).send({ message: "Class not found" });
+        }
+        res.send(result);
+      } catch (error) {
+        console.error("Error fetching class by ID:", error);
+        res
+          .status(500)
+          .send({ message: "An error occurred while fetching the class" });
+      }
     });
 
     app.post("/classes", verifyJWT, async (req, res) => {
